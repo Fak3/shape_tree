@@ -20,55 +20,71 @@
 import bpy
 import bl_ui
 
-from . import main
-from .main import op
+from . import util
+from .util import op
 
 
 class MESH_UL_shape_keys_tree(bpy.types.UIList):
-    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+    def draw_item(self, context, layout, data, shapenode, icon, active_data, active_propname, index):
         #obj = context.object
         #use_edit_mode = obj.use_shape_key_edit_mode and obj.type == 'MESH'
         
         prefs = context.preferences.addons['shape_tree'].preferences
         
         row = layout.row(align=True)
+        
         row.alignment = 'LEFT'
-        for x in range((item.path.count('//') - 1) * prefs.shape_key_indent_scale):
+        for x in range((shapenode.path.count('//') - 1) * prefs.shape_key_indent_scale):
             row.separator(factor=1)
         
-        if item.is_folder:
+        if shapenode.is_folder:
             row.separator_spacer()
-            op(row, 'skt.folder_toggle', text='', emboss=len(list(item.children)) > 0,
-               icon='TRIA_RIGHT' if item.is_collapsed else 'TRIA_DOWN', op_index=index
+            op(row, 'skt.folder_toggle', text='', emboss=len(list(shapenode.children)) > 0,
+               icon='TRIA_RIGHT' if shapenode.is_collapsed else 'TRIA_DOWN', op_index=index
             )
+        elif not shapenode.shapekey:
+            row.prop(shapenode, 'label', text="(removed)", emboss=False)
+            return
             
-        #row.prop(item, 'path', text="", emboss=False)
-        row.prop(item, 'label', text="", emboss=False)
+        #row.prop(shapenode, 'path', text="", emboss=False)
+        row.prop(shapenode, 'label', text="", emboss=False)
         
         row = layout.row(align=True)
         
-        if item.is_folder:
-            row.prop(item, 'is_muted', text="", emboss=False,
-                     icon='HIDE_ON' if item.is_muted else 'HIDE_OFF')
-            #op(row, 'skt.folder_ungroup', text="", icon='X', emboss=False, op_index=index)
+        if shapenode.is_folder:
+            row.alignment = 'RIGHT'
+            row.prop(shapenode, 'is_muted', text="", emboss=False,
+                     icon='HIDE_ON' if shapenode.is_muted else 'HIDE_OFF')
+            #col = row.column()
+            #col.separator(factor=1)
             
         else:
-            #if item.shapekey.mute or (obj.mode == 'EDIT' and not use_edit_mode):
+            #if shapenode.shapekey.mute or (obj.mode == 'EDIT' and not use_edit_mode):
                 #row.active = False
            
             row.alignment = 'RIGHT'
             
-            shapekey = item.shapekey
-            if not shapekey.id_data.use_relative:
-                row.prop(shapekey, 'frame', text="", emboss=False)
+            #print(shapenode, shapenode.label, shapenode.get('PATH', 'mm'), shapenode.shapekey)
+            row.enabled = shapenode.shapekey.mute is False
                 
-            if not item.path == '//Basis':
-                row.prop(shapekey, 'value', text="", emboss=False)
-                row.prop(shapekey, 'mute', text="", icon='HIDE_OFF', emboss=False)
+            if not shapenode.shapekey.id_data.use_relative:
+                row.prop(shapenode.shapekey, 'frame', text="", emboss=False)
+                
+            if not shapenode.path == '//Basis':
+                #print(shapenode.shapekey.id_data.animation_data.drivers[0].driver)
+                #if shapenode.shapekey.id_data.animation_data.drivers[0].driver:
+                row.prop(shapenode.shapekey, 'value', text="", emboss=True)
+                #else:
+                #row.prop(shapenode.shapekey, 'value', text="", emboss=False)
+                    
+                row = layout.row(align=True)
             
-                row.prop(
-                    item, 'is_selected', text="", emboss=False,
-                    icon='CHECKBOX_HLT' if item.is_selected else 'CHECKBOX_DEHLT',
+                row.prop(shapenode.shapekey, 'mute', text="", icon='HIDE_OFF', emboss=False)
+                
+                col = row.column()
+                col.prop(
+                    shapenode, 'is_ticked', text="", emboss=False,
+                    icon='CHECKBOX_HLT' if shapenode.is_ticked else 'CHECKBOX_DEHLT',
                 )
     
     
@@ -79,27 +95,24 @@ class MESH_UL_shape_keys_tree(bpy.types.UIList):
         subrow = row.row(align=True)
         
         op(subrow, 'skt.clear_filter', text='', icon='X', emboss=False)
-        subrow.prop(obj.skt, 'name_filter', text="")
-        subrow.prop(obj.skt, 'name_filter_invert', text="",
-            icon='ZOOM_OUT' if obj.skt.name_filter_invert else 'ZOOM_IN'
+        subrow.prop(obj.extra_props, 'name_filter', text="")
+        subrow.prop(obj.extra_props, 'name_filter_invert', text="",
+            icon='ZOOM_OUT' if obj.extra_props.name_filter_invert else 'ZOOM_IN'
         )
         
         subrow = row.row(align=True)
-        subrow.prop(obj.skt, 'value_filter', text="", icon='HIDE_OFF')
+        subrow.prop(obj.extra_props, 'value_filter', text="", icon='HIDE_OFF')
         
-        if obj.skt.value_filter:
-            subrow.prop(obj.skt, 'value_filter_threshold', text="")
+        if obj.extra_props.value_filter:
+            subrow.prop(obj.extra_props, 'value_filter_threshold', text="")
             subrow.prop(
-                obj.skt, 'value_filter_direction', text="", 
-                icon='TRIA_RIGHT' if obj.skt.value_filter_direction else 'TRIA_LEFT'
+                obj.extra_props, 'value_filter_direction', text="", 
+                icon='TRIA_RIGHT' if obj.extra_props.value_filter_direction else 'TRIA_LEFT'
             )
     
     
     def filter_items(self, context, data, propname):
-        main.items.collapsed = set(
-            x.path+'//' for x in main.items.filter(is_folder=True, is_collapsed=True)
-        )
-        skt = context.object.skt
+        shapenodes = context.object.extra_props.shapenodes
         
         def sortorder(x):
             if x.path == '//Basis':
@@ -108,11 +121,12 @@ class MESH_UL_shape_keys_tree(bpy.types.UIList):
             path = '//0'.join(x.path.split('//')[:-1]) + ('//0' if x.is_folder else '//1')
             return f'1//{path}{x.label}'
         
-        indices = {x.path: n for n, x in enumerate(sorted(skt.items, key=sortorder))}
+        indices = {x.path: n for n, x in enumerate(sorted(shapenodes, key=sortorder))}
         
+        visible = set(x.path for x in util.get_visible_nodes())
         return (
-            [self.bitflag_filter_item if x.visible else 0 for x in skt.items], 
-            [indices.get(x.path) for x in skt.items]
+            [self.bitflag_filter_item if x.path in visible else 0 for x in shapenodes], 
+            [indices.get(x.path) for x in shapenodes]
         )
     
     

@@ -20,8 +20,8 @@
 import bpy
 import bl_ui
 
-from . import main
-from .main import op
+from . import util
+from .util import op
 
 
 def get_key_driver(name):
@@ -64,7 +64,7 @@ class DATA_PT_shape_keys_tree(bpy.types.Panel):
         op(row, 'skt.new_folder', text="Folder")
         op(row, 'skt.shape_key_add', text="Shape", op_type='DEFAULT')
         row = row.row()
-        row.enabled = bool(list(main.items.filter(is_folder=False)))
+        row.enabled = bool(list(util.get_filtered_nodes(is_folder=False)))
         op(row, 'skt.shape_key_add', text="Shape From Mix", op_type='FROM_MIX')
         
         row = self.layout.row()
@@ -77,8 +77,9 @@ class DATA_PT_shape_keys_tree(bpy.types.Panel):
         subrow = row.row()
         subrow.alignment='RIGHT'
         
-        if main.items.selected:
-            subrow.menu('MESH_MT_skt_actions', text=f'{len(main.items.selected)} selected')
+        affected = util.get_ticked_or_focused()
+        if affected:
+            subrow.menu('MESH_MT_skt_actions', text=f'{len(affected)} selected')
         else:
             subrow.label(text=f'0 selected')
         
@@ -90,13 +91,16 @@ class DATA_PT_shape_keys_tree(bpy.types.Panel):
         
         
         row = self.layout.row()
+        #print('111', obj, obj.extra_props)
+        #row.template_list("MATERIAL_UL_matslots_example", "", obj, "material_slots", obj, "active_material_index")
+        #row.template_list("MESH_UL_shape_keys_tree", "", obj.extra_props, "items", obj.extra_props, "focused_node_index")
         row.template_list(
             listtype_name='MESH_UL_shape_keys_tree',
-            dataptr=obj.skt,
-            propname='items',
-            active_dataptr=obj.skt,
-            active_propname='active_item',
-            list_id='SHAPE_KEYS_PLUS',
+            dataptr=obj.extra_props,
+            propname='shapenodes',
+            active_dataptr=obj.extra_props,
+            active_propname='focused_node_index',
+            list_id='SHAPE_KEYS_TREE',
             rows=8)
         
         
@@ -105,10 +109,10 @@ class DATA_PT_shape_keys_tree(bpy.types.Panel):
         row = split.row()
         row.enabled = enable_edit
         
-        if not context.object.data.shape_keys:
+        if not obj.data.shape_keys:
             return
         
-        row.prop(context.object.data.shape_keys, 'use_relative')
+        row.prop(obj.data.shape_keys, 'use_relative')
         
         row = split.row()
         row.alignment = 'RIGHT'
@@ -124,19 +128,20 @@ class DATA_PT_shape_keys_tree(bpy.types.Panel):
         
         sub = row.row()
         
-        if context.object.data.shape_keys.use_relative:
+        if obj.data.shape_keys.use_relative:
             op(sub, 'object.shape_key_clear', text="0 all")
         else:
             sub.operator('object.shape_key_retime', icon='RECOVER_LAST', text="")
         
-        if not main.items.active or main.items.active.is_folder:
+        focused = util.get_focused_node()
+        if not focused or focused.is_folder or focused.sk_index < 0:
             return
         
-        if context.object.data.shape_keys.use_relative:
+        if obj.data.shape_keys.use_relative:
             row = self.layout.row()
             row.active = enable_edit_value
             
-            row.prop(main.items.active.shapekey, 'value')
+            row.prop(focused.shapekey, 'value')
             
             split = self.layout.split()
             
@@ -144,8 +149,8 @@ class DATA_PT_shape_keys_tree(bpy.types.Panel):
             col.active = enable_edit_value
             
             col.label(text="Range:")
-            col.prop(main.items.active.shapekey, 'slider_min', text="Min")
-            col.prop(main.items.active.shapekey, 'slider_max', text="Max")
+            col.prop(focused.shapekey, 'slider_min', text="Min")
+            col.prop(focused.shapekey, 'slider_max', text="Max")
             
             col = split.column(align=True)
             col.active = enable_edit_value
@@ -153,16 +158,16 @@ class DATA_PT_shape_keys_tree(bpy.types.Panel):
             col.label(text="Blend:")
             
             col.prop_search(
-                data=main.items.active.shapekey,
+                data=focused.shapekey,
                 property='vertex_group',
                 search_data=obj,
                 search_property='vertex_groups',
                 text="")
             
             col.prop_search(
-                data=main.items.active.shapekey,
+                data=focused.shapekey,
                 property='relative_key',
-                search_data=context.object.data.shape_keys,
+                search_data=obj.data.shape_keys,
                 search_property='key_blocks',
                 text="")
         else:
@@ -170,9 +175,9 @@ class DATA_PT_shape_keys_tree(bpy.types.Panel):
             
             row = self.layout.column()
             row.active = enable_edit_value
-            row.prop(context.object.data.shape_keys, 'eval_time')
+            row.prop(obj.data.shape_keys, 'eval_time')
         
-        driver = get_key_driver(main.items.active.path)
+        driver = get_key_driver(focused.path)
         
         if not driver:
             return
@@ -180,9 +185,9 @@ class DATA_PT_shape_keys_tree(bpy.types.Panel):
         self.layout.separator()
         
         row = self.layout.row()
-        row.prop(obj.skt, 'driver_visible')
+        row.prop(obj.extra_props, 'driver_visible')
         
-        if not obj.skt.driver_visible:
+        if not obj.extra_props.driver_visible:
             return
         
         row = self.layout.row()

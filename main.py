@@ -19,174 +19,36 @@
 
 import bpy
 import bl_ui
+from bpy.props import BoolProperty, IntProperty, CollectionProperty, StringProperty, FloatProperty
 
 
-def op(row, op, **kwargs):
-    result = row.operator(op, **{k:v for k,v in kwargs.items() if not k.startswith('op_')})
-    for key in kwargs:
-        if key.startswith('op_'):
-            setattr(result, key[3:], kwargs[key])
-    return result
     
-    
-class AddonProperties(bpy.types.AddonPreferences):
-    bl_idname = 'shape_tree'
-    
-    shape_key_indent_scale : bpy.props.IntProperty(name="Indentation",
-        description="Indentation of folder contents", min=0, max=8, default=2
-    )
-    
-    hide_default: bpy.props.BoolProperty(name="Hide Default Panel",
-        description = "Hides the default Shape Keys panel",
-        default = True, update = lambda x, a: x.update_hide_default()
-    )
-    def update_hide_default(self):
-        if self.hide_default:
-            bpy.utils.unregister_class(bl_ui.properties_data_mesh.DATA_PT_shape_keys)
-        else:
-            bpy.utils.register_class(bl_ui.properties_data_mesh.DATA_PT_shape_keys)
-    
-    def draw(self, context):
-        row = self.layout.row()
-        row.prop(self, 'hide_default')
-        row.prop(self, 'shape_key_indent_scale')
-
-
-
-
-class Items:
+class NodeProxy:
     """
-    This is convenience class that represents bpy.context.object.skt collection. Provides
-    methods to add/retieve/select nodes of the shape keys tree.
-    """
-    def __iter__(self):
-        ordered = sorted(bpy.context.object.skt.items, key=lambda x: x.path)
-        return iter([ItemProxy(x.path) for x in ordered])
-            
-    def __getitem__(self, path):
-        """
-        Get item by path:
-            
-            main.items['//Basis']
-            
-        """
-        if not path:
-            return None
-        for item in bpy.context.object.skt.items:
-            if item.path == path:
-                return ItemProxy(item.path)
-            
-    @property
-    def active(self):
-        if bpy.context.object.skt.active_item < 0:
-            return None
-        try:
-            return ItemProxy(bpy.context.object.skt.items[bpy.context.object.skt.active_item].path)
-        except:
-            pass
-        return None
+    This class represents Node (tree node) with a specific path.
     
-    @active.setter
-    def active(self, item):
-        if not item:
-            selected = list(self.get_selected())
-            if len(selected) == 1:
-                #item = selected[0]
-                bpy.context.object.skt.active_item = selected[0].index
-                return
-            else:
-                bpy.context.object.skt.active_item = -1
-                return
-        for folder in item.parents:
-            folder.is_collapsed = False
-        bpy.context.object.skt.active_item = item.index
-        
-    def get_selected(self):
-        for item in bpy.context.object.skt.items:
-            if item.is_selected:
-                yield ItemProxy(item.path)
-        
-    @property
-    def selected(self):
-        selected = list(self.get_selected())
-        if self.active and not selected:
-            return [self.active]
-        return selected
+    Blender's UIList has an annoying issue: when you add\delete\move items (we use custom item type, Node) 
+    in it, all instances of Node will be modified in-place. I.e Node instance you got could change path:
     
-    def filter(self, **kw):
-        """
-        Get all items matching keyword:
-            
-            folders = list(main.items.filter(is_folder=True))
-            
-        """
-        for item in bpy.context.object.skt.items:
-            if all(getattr(item, key) == kw[key] for key in kw):
-                yield ItemProxy(item.path)
-            
-    def keys(self):
-        return set(x.path for x in bpy.context.object.skt.items)
-        
-    @property
-    def active_folder(self):
-        if not self.active:
-            return None
-        return self.active if self.active.is_folder else self.active.parent
-    
-    def add_shape(self, path=None, from_mix=False):
-        item = self._add(path or 'Key', is_folder=False)
-        shapekey = bpy.context.object.shape_key_add(from_mix=from_mix)
-        shapekey.name = item.path
-    
-    def add_folder(self, path=None):
-        item = self._add(path, is_folder=True)
-        self.active = item
-        
-    def _add(self, path, is_folder):
-        if not path.startswith('//'):
-            if self.active_folder:
-                path = f'{self.active_folder.path}//{path}'
-            else:
-                path = '//' + path
-        
-        item = bpy.context.object.skt.items.add()
-        item.is_folder = is_folder
-        item.path = path
-        
-        return ItemProxy(item.path)
-    
-    @property
-    def visible(self):
-        items.collapsed = list(x.path+'//' for x in items.filter(is_folder=True, is_collapsed=True))
-        return self.filter(visible=True)
-        
-    
-items = Items()
-
-
-class ItemProxy:
-    """
-    This class represents Item (tree node) with a specific path.
-    
-    Blender's UIList has an annoying issue: when you add\delete\move items in it, all instances
-    of Item will be modified in-place. I.e Item you got could change path:
-    
-        item1, item2, item3 = object.skt.items[0:2]
+        item1, item2, item3 = object.extra_props.shapenodes[0:2]
         assert(item2.path == '//Key1')
-        object.skt.items.remove(1)
+        object.extra_props.shapenodes.remove(1)
         assert(item2.path == '//Key1')  # ERROR: item2.path changed to "//Key2"
         
-    So in many places it is more convenient to use this class instead of using Item. This class
-    always refers to an item with a certain path, passing down attribute access to the 
-    appropriate Item.
+    So in many places it is more convenient to use this class instead of using Node. This class
+    always refers to an node with a certain path, passing down attribute access to the 
+    appropriate Node.
     """
     def __init__(self, path):
         self._path = path
         
+    def __repr__(self):
+        return f'NodeProxy({self._path})'
+    
     def __setattr__(self, name, val):
         if name.startswith('_'):
             return super().__setattr__(name, val)
-        setattr(bpy.context.object.skt.items[self.index], name, val)
+        setattr(bpy.context.object.extra_props.shapenodes[self.index], name, val)
         if name == 'path':
             self._path = val
             
@@ -195,45 +57,74 @@ class ItemProxy:
             return super().__getattr__(name)
         if name == 'path':
             return self._path
+        if name == 'delete':
+            return self.delete
         if name in self.__class__.__dict__:
             return super().__getattr__(name)
         #print(f'__getattr__ {name}')
-        return getattr(bpy.context.object.skt.items[self.index], name)
+        return getattr(bpy.context.object.extra_props.shapenodes[self.index], name)
             
     @property
     def index(self):
-        for n, item in enumerate(bpy.context.object.skt.items):
-            if item.path == self.path:
+        for n, node in enumerate(bpy.context.object.extra_props.shapenodes):
+            if node.path == self.path:
                 return n
 
+    def delete(self):
+        for node in self.children:
+            node.delete()
+        if not self.is_folder:
+            if self.path == '//Basis' and len(bpy.context.object.data.shape_keys.key_blocks) > 1:
+                return
+            if self.sk_index >= 0:
+                print(f"Node.delete() INFO: about to remove shape key with path {self.path}.")
+                bpy.context.object.active_shape_key_index = self.sk_index
+                # There is an issue to keep in mind, that calling bpy.ops.object.shape_key_remove(), will
+                # immediately execute depsgraph_update_post() handler, calling __init__.sync_node_shapekeys(),
+                # which will see that shape key was just removed, and try to remove this tree node.
+                # After tree node gets removed in __init__.sync_node_shapekeys(), this function will proceed
+                # and self.index of this NodeProxy will be None.
+                bpy.ops.object.shape_key_remove()
+                print(f"Node.delete() INFO: shape key with path {self.path} removed.")
+        if self.index:
+            print(f"Node.delete() INFO: removing tree node {self.path} with index {self.index}")
+            bpy.context.object.extra_props.shapenodes.remove(self.index)
+    
 
-class Item(bpy.types.PropertyGroup):
+class Node(bpy.types.PropertyGroup):
     """
-    Tree node. Member of main.ObjectData.items CollectionProperty (see ObjectData class below)
+    Tree node. Member of main.ExtraObjectPropsGroup.shapenodes CollectionProperty 
+    (see ExtraObjectPropsGroup class below)
     """
-    is_folder: bpy.props.BoolProperty(name="Is folder", default=False)
-    is_collapsed: bpy.props.BoolProperty(name="Is collapsed", default=False)
-    is_selected: bpy.props.BoolProperty(
-        name = "Is selected", default = False, 
-        update = lambda x, a: setattr(items, 'active', x) if x.is_selected else None
+    is_folder: BoolProperty(name="Is folder", default=False)
+    is_collapsed: BoolProperty(name="Is collapsed", default=False)
+    
+    is_ticked: BoolProperty(
+        name = "Is ticked", default = False, 
+        update = lambda x, a: x.on_ticked()
     )
     
-    is_muted: bpy.props.BoolProperty(
+    def on_ticked(self):
+        # Change focus to the node that is ticked
+        if self.is_ticked:
+            bpy.context.object.extra_props.focused_node_index = NodeProxy(self.path).index
+    
+    is_muted: BoolProperty(
         name = "Is muted", default = False,  update = lambda x, a: x.on_muted()
     )
     def on_muted(self):
         if self.is_folder:
-            for item in self.children:
-                item.is_muted = self.is_muted
+            for node in self.children:
+                node.is_muted = self.is_muted
         else:
             self.shapekey.mute = self.is_muted
         
     
-    label: bpy.props.StringProperty(
+    label: StringProperty(
         get = lambda x: x.path.rpartition('//')[-1],
         set = lambda x, val: setattr(x, 'path', x.path.rpartition('//')[0] + f'//{val}'), 
     )
-    path: bpy.props.StringProperty(
+    path: StringProperty(
         get = lambda x: x.get('PATH', ''),
         set = lambda x, val: x.on_path(val)
     )
@@ -251,22 +142,25 @@ class Item(bpy.types.PropertyGroup):
         if new_path == '//Basis' and self.is_folder:
             new_path += '0'
             
-        while new_path in items.keys():
+        while new_path in set(x.path for x in bpy.context.object.extra_props.shapenodes):
             new_path += '0'
             
         if self.get('PATH') and not self.is_folder:
             self.shapekey.name = new_path
             
         if self.is_folder:
-            for item in self.children:
-                item.path = f'{new_path}//{item.label}'
+            for node in self.children:
+                node.path = f'{new_path}//{node.label}'
                 
         self['PATH'] = new_path
         
         
     @property
     def parent(self):
-        return items[self.path.rpartition('//')[0]] or None
+        for node in bpy.context.object.extra_props.shapenodes:
+            if node.path == self.path.rpartition('//')[0]:
+                return NodeProxy(node.path)
+            
     
     parents = property(lambda x: ([x.parent] + x.parent.parents) if x.parent else [])
     
@@ -274,30 +168,24 @@ class Item(bpy.types.PropertyGroup):
     #def parents(self):
         #if self.parent:
             #yield self.parent
-            #for item in self.parent.parents:
-                #yield item
-    
-    def delete(self):
-        for item in self.children:
-            item.delete()
-        if not self.is_folder:
-            if self.path == '//Basis' and len(bpy.context.object.data.shape_keys.key_blocks) > 1:
-                return
-            bpy.context.object.active_shape_key_index = self.sk_index
-            bpy.ops.object.shape_key_remove()
-        bpy.context.object.skt.items.remove(self.index)
+            #for node in self.parent.parents:
+                #yield node
     
     @property
     def children(self):
-        for item in items:
-            if self.path and item.path.rpartition('//')[0:2] == (self.path, '//'):
-                yield item
+        for node in sorted(list(bpy.context.object.extra_props.shapenodes), key=lambda x: x.path):
+            if self.path and node.path.rpartition('//')[0:2] == (self.path, '//'):
+                yield node
                 
-    @property
-    def index(self):
-        for n, item in enumerate(bpy.context.object.skt.items):
-            if item.path == self.path:
-                return n
+    #@property
+    #def index(self):
+        #for n, node in enumerate(bpy.context.object.extra_props.shapenodes):
+            ## WARNING: self.path of a Node can be implicitly changed by blender when self.shapenodes 
+            ## CollectionProperty, holding list of Node instances, changes in size. Hence it is 
+            ## recommended to use NodeProxy instead of Node directly. See quirks in NodeProxy.delete()
+            ## method.
+            #if node.path == self.path:
+                #return n
             
     @property
     def shapekey(self):
@@ -309,63 +197,58 @@ class Item(bpy.types.PropertyGroup):
     def sk_index(self):
         return bpy.context.object.data.shape_keys.key_blocks.find(self.path)
     
-    @property
-    def visible(self):
-        skt = bpy.context.object.skt
-        #collapsed = list(x.path+'//' for x in items.filter(is_folder=True, is_collapsed=True))
-        
-        if any(self.path.startswith(x) for x in items.collapsed):
-            return False
-        
-        if self.is_folder:
-            return True   # Always show folders.
-        
-        if skt.name_filter and skt.name_filter.lower() not in self.label.lower():
-            return False
-        
-        if skt.value_filter and not self.is_folder:
-            if skt.value_filter_direction:
-                return bool(skt.value_filter_threshold < self.shapekey.value)
-            else:
-                return bool(skt.value_filter_threshold > self.shapekey.value)
-        
-        return True
-
 
     
-class ObjectData(bpy.types.PropertyGroup):
+class ExtraObjectPropsGroup(bpy.types.PropertyGroup):
     """ Per-object data and settings. """
     
-    driver_visible: bpy.props.BoolProperty(name="Show Driver", default=True)
+    shapenodes: CollectionProperty(type=Node)
+    focused_node_index: IntProperty(default=-1,  update = lambda x, a: x.on_focus_change())
     
-    name_filter: bpy.props.StringProperty(name="Name filter", default='')
-    name_filter_invert: bpy.props.BoolProperty(name="Name filter invert", default=False)
+    def on_focus_change(self):
+        """
+        Ensure blender internal object.active_shape_key_index follows focused tree node.
+        """
+        obj = bpy.context.object
+        
+        #if obj.extra_props.focused_node_index < 0:
+        #focused_node = get_focused_node()
+        
+        if self.focused_node_index >= 0:
+            focused_node = NodeProxy(self.shapenodes[self.focused_node_index].path)
+            print('focused_node', focused_node, focused_node.sk_index)
+            
+            obj.active_shape_key_index = focused_node.sk_index
+            
+            # If user previously ticked only one other node, untick it. Without this, it is not
+            # obvious for user which one node will be affected - ticked or focused.
+            ticked = [NodeProxy(x.path) for x in obj.extra_props.shapenodes if x.is_ticked]
+            if len(ticked) == 1 and not ticked[0].path == focused_node.path:
+                ticked[0].is_ticked = False
+                
+            # Ensure focused node parent folders are expanded.
+            for folder in focused_node.parents:
+                folder.is_collapsed = False
+        else:
+            obj.active_shape_key_index = -1
+            
     
-    value_filter: bpy.props.BoolProperty(
+    driver_visible: BoolProperty(name="Show Driver", default=True)
+    
+    name_filter: StringProperty(name="Name filter", default='')
+    name_filter_invert: BoolProperty(name="Name filter invert", default=False)
+    
+    value_filter: BoolProperty(
         name="Filter shapes by value", default=False,
         description="Only show shape keys with a value above/below a certain threshold",
     )
     
-    value_filter_threshold: bpy.props.FloatProperty(
+    value_filter_threshold: FloatProperty(
         name="Value filter threshold", description="Only show shape keys above/below this value",
         soft_min=-1.0, soft_max=1.0, default=0.001, step=1, precision=3
     )
     
-    value_filter_direction: bpy.props.BoolProperty(
+    value_filter_direction: BoolProperty(
         name="Greater/Less", default=False, description="Greater/Less",
     )
 
-    items: bpy.props.CollectionProperty(type=Item)
-    active_item: bpy.props.IntProperty(default=-1,  update = lambda x, a: x.on_active())
-    
-    def on_active(self):
-        if items.active:
-            bpy.context.object.active_shape_key_index = items.active.sk_index
-            
-            selected = list(items.get_selected())
-            if len(selected) == 1 and not selected[0].path == items.active.path:
-                selected[0].is_selected = False
-        else:
-            bpy.context.object.active_shape_key_index = -1
-            
-    

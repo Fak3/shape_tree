@@ -1,5 +1,8 @@
 # ##### BEGIN GPL LICENSE BLOCK #####
 #
+#  copyright 2019-2020 Michael Glen Montague
+#  copyright 2020 <someuniquename@gmail.com> Evstifeev Roman
+#
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
 #  as published by the Free Software Foundation; either version 2
@@ -45,34 +48,67 @@ from bpy.types import bpy_struct
 from bpy.app.handlers import persistent
 
 
+    
+class AddonSettings(bpy.types.AddonPreferences):
+    bl_idname = 'shape_tree'
+    
+    shape_key_indent_scale: bpy.props.IntProperty(name="Indentation",
+        description="Indentation of folder contents", min=0, max=8, default=2
+    )
+    
+    hide_default: bpy.props.BoolProperty(name="Hide Default Panel",
+        description = "Hides the default Shape Keys panel",
+        default = True, update = lambda x, a: x.update_hide_default()
+    )
+    def update_hide_default(self):
+        if self.hide_default:
+            bpy.utils.unregister_class(bl_ui.properties_data_mesh.DATA_PT_shape_keys)
+        else:
+            bpy.utils.register_class(bl_ui.properties_data_mesh.DATA_PT_shape_keys)
+    
+    def draw(self, context):
+        row = self.layout.row()
+        row.prop(self, 'hide_default')
+        row.prop(self, 'shape_key_indent_scale')
+
+
+def sync_node_shapekeys():
+    for obj in bpy.context.scene.objects:
+        existing_nodes = set(x.path for x in obj.extra_props.shapenodes)
+        existing_shapekeys = set()
+        
+        if getattr(obj.data, 'shape_keys', None):
+            existing_shapekeys = set(x.name for x in obj.data.shape_keys.key_blocks.values())
+            for id, shapekey in obj.data.shape_keys.key_blocks.items():
+                if shapekey.name in existing_nodes:
+                    continue
+                print(f'sync_node_shapekeys() INFO: {obj}, adding {shapekey.name} to shape keys tree.')
+                if not shapekey.name.startswith('//'):
+                    shapekey.name = '//' + shapekey.name
+                node = obj.extra_props.shapenodes.add()
+                node.is_folder = False
+                node.path = shapekey.name
+        
+        for node in list(main.NodeProxy(x.path) for x in obj.extra_props.shapenodes if not x.is_folder):
+            if node.path not in existing_shapekeys:
+                print(f'sync_node_shapekeys() WARN: {obj}, {node.path} shape key does not exist, removing the tree node.')
+                obj.extra_props.shapenodes.remove(node.index)
+                #node.delete()
+
 @persistent
 def depsgraph_update_post(*a):
     #print("depsgraph_update_post", a)
-    for obj in bpy.context.scene.objects:
-        if getattr(obj.data, 'shape_keys', None):
-            keys = set(x.path for x in obj.skt.items)
-            for id, shapekey in obj.data.shape_keys.key_blocks.items():
-                if shapekey.name in keys:
-                    continue
-                print(f'{obj}, adding {shapekey.name} to shape keys tree.')
-                if not shapekey.name.startswith('//'):
-                    shapekey.name = '//' + shapekey.name
-                item = obj.skt.items.add()
-                item.is_folder = False
-                item.path = shapekey.name
+    sync_node_shapekeys()
+
 
 @persistent
 def load_post(*a):
     #print("load_post", a)
-    for obj in bpy.context.scene.objects:
-        if getattr(obj.data, 'shape_keys', None) and not obj.skt.items:
-            for id, shapekey in obj.data.shape_keys.key_blocks.items():
-                shapekey.name = '//' + shapekey.name
-                item = obj.skt.items.add()
-                item.is_folder = False
-                item.path = shapekey.name
+    sync_node_shapekeys()
+
 
 def classes():
+    yield AddonSettings
     for module in main, menu, operator, listview, panel:
         for name, cls in module.__dict__.items():
             if isinstance(cls, type) and issubclass(cls, bpy_struct) and 'Base' not in name:
@@ -85,7 +121,7 @@ def register():
     for klass in classes():
         bpy.utils.register_class(klass)
     
-    bpy.types.Object.skt = bpy.props.PointerProperty(type=main.ObjectData)
+    bpy.types.Object.extra_props = bpy.props.PointerProperty(type=main.ExtraObjectPropsGroup)
 
     bpy.app.handlers.depsgraph_update_post.append(depsgraph_update_post)
     bpy.app.handlers.load_post.append(load_post)
@@ -103,9 +139,12 @@ def unregister():
     for klass in classes():
         bpy.utils.unregister_class(klass)
     
-    if hasattr(bpy.types.Object, 'skt'):
-        del bpy.types.Object.skt
+    if hasattr(bpy.types.Object, 'extra_props'):
+        del bpy.types.Object.extra_props
         
+    bpy.app.handlers.depsgraph_update_post.remove(depsgraph_update_post)
+    bpy.app.handlers.load_post.remove(load_post)
+
     default_panel_exists = hasattr(bpy.types, 'DATA_PT_shape_keys')
     
     if not default_panel_exists:

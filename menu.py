@@ -18,24 +18,25 @@
 
 import bpy
 
-from .main import op
-from . import main
+from .util import op
+from . import util
+#from . import main
 
         
 class MESH_MT_skt_actions(bpy.types.Menu):
     bl_label = "Do ..."
     
     def draw(self, context):
-        selected = main.items.selected
+        affected = util.get_ticked_or_focused()
         col = self.layout
         
-        if len(selected) == 1 and selected[0].path == '//Basis':
+        if len(affected) == 1 and affected[0].path == '//Basis':
             col.enabled = False
         
         if col.enabled:
             col.menu('MESH_MT_skt_move', icon='FILE_PARENT')
             
-        if len(selected) == 1 and not selected[0].is_folder:
+        if len(affected) == 1 and not affected[0].is_folder:
             op(col, 'object.shape_key_mirror', icon='ARROW_LEFTRIGHT', op_use_topology=False)
             op(col, 'object.shape_key_mirror', icon='ARROW_LEFTRIGHT', op_use_topology=True,
                 text="Mirror Shape Key (Topology)")
@@ -44,7 +45,7 @@ class MESH_MT_skt_actions(bpy.types.Menu):
             op(col, 'object.join_shapes', icon='COPY_ID')
         
         col = col.column()
-        if len(selected) == 1 and selected[0].path == '//Basis':
+        if len(affected) == 1 and affected[0].path == '//Basis':
             col.enabled = True
         col.separator()
         op(col, 'skt.mute', icon='HIDE_ON')
@@ -57,15 +58,17 @@ class MESH_MT_skt_move(bpy.types.Menu):
     bl_label = "Move to"
     
     def draw(self, context):
-        selected = main.items.selected
-        if len(selected) == 1:
-            self.layout.label(text=f'Move {selected[0].label} to ...')
+        affected_nodes = util.get_ticked_or_focused()
+        
+        if len(affected_nodes) == 1:
+            self.layout.label(text=f'Move {affected_nodes[0].label} to ...')
+            
         op(self.layout, 'skt.move', text='/', op_dst='')
+        
+        for folder in sorted(util.get_filtered_nodes(is_folder=True), key=lambda x: x.path):
+            if len(affected_nodes) == 1 and folder.path == affected_nodes[0].path:
+                continue  # Don't allow to move folder into itself
                 
-        for item in sorted(main.items.filter(is_folder=True), key=lambda x: x.path):
-            if len(selected) == 1 and item.path == selected[0].path:
-                continue
-                #import ipdb; ipdb.sset_trace()
-            op(self.layout, 'skt.move', text=item.path.replace('//', ' / '), op_dst=item.path)
+            op(self.layout, 'skt.move', text=folder.path.replace('//', ' / '), op_dst=folder.path)
                     
 
