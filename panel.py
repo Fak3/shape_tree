@@ -171,7 +171,7 @@ class DATA_PT_shape_keys_tree(bpy.types.Panel):
                 search_property='key_blocks',
                 text="")
         else:
-            self.layout.prop(active_key, 'interpolation')
+            self.layout.prop(focused.shapekey, 'interpolation')
             
             row = self.layout.column()
             row.active = enable_edit_value
