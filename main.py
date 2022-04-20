@@ -66,11 +66,14 @@ class NodeProxy:
             
     @property
     def index(self):
+        #existing_nodes = set(x.path for x in bpy.context.object.extra_props.shapenodes)
+        #print(f'NodeProxy.index() INFO: {bpy.context.object}, {existing_nodes}')
         for n, node in enumerate(bpy.context.object.extra_props.shapenodes):
             if node.path == self.path:
                 return n
 
     def delete(self):
+        #print(f"Node.delete() INFO: about to remove tree node {self.path} with index {self.index}")
         for node in self.children:
             node.delete()
         if not self.is_folder:

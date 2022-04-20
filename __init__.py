@@ -77,8 +77,10 @@ def sync_node_shapekeys():
         existing_nodes = set(x.path for x in obj.extra_props.shapenodes)
         existing_shapekeys = set()
         
+        #print(f'sync_node_shapekeys() INFO: {obj}, existing_nodes {existing_nodes}')
         if getattr(obj.data, 'shape_keys', None):
             existing_shapekeys = set(x.name for x in obj.data.shape_keys.key_blocks.values())
+            #print(f'sync_node_shapekeys() INFO: {obj}, existing_shapekeys {existing_shapekeys}')
             for id, shapekey in obj.data.shape_keys.key_blocks.items():
                 if shapekey.name in existing_nodes:
                     continue
@@ -88,11 +90,17 @@ def sync_node_shapekeys():
                 node = obj.extra_props.shapenodes.add()
                 node.is_folder = False
                 node.path = shapekey.name
-        
+            # New shapekeys now have //
+            existing_shapekeys = set(x.name for x in obj.data.shape_keys.key_blocks.values())
+            
+        #print(f'sync_node_shapekeys() INFO: {obj}, existing_shapekeys {existing_shapekeys}')
         for node in list(main.NodeProxy(x.path) for x in obj.extra_props.shapenodes if not x.is_folder):
             if node.path not in existing_shapekeys:
                 print(f'sync_node_shapekeys() WARN: {obj}, {node.path} shape key does not exist, removing the tree node.')
-                obj.extra_props.shapenodes.remove(node.index)
+                if node.index is None:
+                    print(f"sync_node_shapekeys() WARN: {obj}, {node.path} node alredy removed!")
+                else:
+                    obj.extra_props.shapenodes.remove(node.index)
                 #node.delete()
 
 @persistent

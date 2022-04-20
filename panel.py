@@ -94,6 +94,9 @@ class DATA_PT_shape_keys_tree(bpy.types.Panel):
         #print('111', obj, obj.extra_props)
         #row.template_list("MATERIAL_UL_matslots_example", "", obj, "material_slots", obj, "active_material_index")
         #row.template_list("MESH_UL_shape_keys_tree", "", obj.extra_props, "items", obj.extra_props, "focused_node_index")
+        
+        #existing_nodes = set(x.path for x in obj.extra_props.shapenodes)
+        #print(f'ppp() INFO: {obj}, existing_nodes {existing_nodes}')
         row.template_list(
             listtype_name='MESH_UL_shape_keys_tree',
             dataptr=obj.extra_props,
